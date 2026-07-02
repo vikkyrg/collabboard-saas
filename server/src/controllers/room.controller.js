@@ -231,10 +231,11 @@ export const deleteRoom = asyncHandler(async (req, res) => {
       fullErrorStr.includes("Transaction numbers are only allowed") ||
       fullErrorStr.includes("replica set") ||
       fullErrorStr.includes("retryable writes") ||
+      fullErrorStr.includes("sharded cluster") ||
       err.code === 20 ||
       err.codeName === "IllegalOperation";
 
-    if (isTransactionUnsupported) {
+    if (isTransactionUnsupported || err.name === "MongoServerError") {
       // Fallback: Perform parallel cascade delete without session
       await performCascadeDelete();
     } else {
