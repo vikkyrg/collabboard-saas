@@ -286,7 +286,7 @@ function RoomPage() {
 
   if (loading) {
     return (
-      <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+      <div className="h-[100dvh] flex flex-col bg-slate-50 overflow-hidden">
         {/* Header Skeleton */}
         <div className="h-16 border-b border-slate-200 bg-white px-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -314,7 +314,7 @@ function RoomPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 relative overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-slate-50 relative overflow-hidden">
 
       {!showVideo && (
         <RoomHeader
