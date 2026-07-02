@@ -321,7 +321,7 @@ The application follows a scalable MERN architecture with REST APIs for business
              ▼
       MongoDB Atlas
              │
-             ├──────── Google Gemini AI
+             ├
              │
              └──────── Agora RTC
 ```
