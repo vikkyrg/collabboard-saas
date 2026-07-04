@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Eraser, Minus, Plus } from "lucide-react";
 import ConfirmModal from "../ConfirmModal";
 import { v4 as uuid } from "uuid";
-import { Canvas, Rect, Circle, IText, PencilBrush, util, Polyline, ActiveSelection } from "fabric";
+import { Canvas, Rect, Circle, IText, PencilBrush, util, Polyline, ActiveSelection, Line, Triangle, Group } from "fabric";
 import { getCanvasOps, saveSnapshot, getSnapshot, } from "../../services/canvasService";
 
 const getAbsoluteCoords = (child) => {
@@ -31,6 +31,88 @@ const getAbsoluteCoords = (child) => {
         scaleY: decomposed.scaleY,
         angle: decomposed.angle
     };
+};
+
+// ── Helper: build a plain Fabric Line from two endpoints ───────────────────
+const buildLineObj = (objectId, x1, y1, x2, y2, style = {}) => {
+    return new Line([x1, y1, x2, y2], {
+        objectId,
+        stroke: style.color || style.stroke || "#000000",
+        strokeWidth: style.strokeWidth || 2,
+        strokeDashArray: style.strokeDashArray || null,
+        opacity: style.opacity !== undefined ? style.opacity : 1,
+        fill: "transparent",
+        selectable: style.selectable !== undefined ? style.selectable : true,
+        evented: style.evented !== undefined ? style.evented : true,
+        strokeLineCap: "round",
+        hasControls: true,
+    });
+};
+
+// ── Helper: build an Arrow Group (Line shaft + Triangle arrowhead) ──────────
+const buildArrowGroup = (objectId, x1, y1, x2, y2, style = {}) => {
+    const strokeColor = style.color || style.stroke || "#000000";
+    const strokeWidth = style.strokeWidth || 2;
+    const strokeDashArray = style.strokeDashArray || null;
+    const opacity = style.opacity !== undefined ? style.opacity : 1;
+    const selectable = style.selectable !== undefined ? style.selectable : true;
+    const evented = style.evented !== undefined ? style.evented : true;
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    const headSize = Math.max(12, strokeWidth * 4);
+
+    // Shaft: stop slightly before tip so head sits cleanly
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const shorten = len > headSize ? headSize * 0.6 : 0;
+    const ratio = len > 0 ? (len - shorten) / len : 1;
+    const shaftX2 = x1 + dx * ratio;
+    const shaftY2 = y1 + dy * ratio;
+
+    const shaft = new Line([x1, y1, shaftX2, shaftY2], {
+        stroke: strokeColor,
+        strokeWidth,
+        strokeDashArray,
+        strokeLineCap: "round",
+        fill: "transparent",
+        selectable: false,
+        evented: false,
+        objectCaching: false,
+    });
+
+    const head = new Triangle({
+        width: headSize,
+        height: headSize,
+        fill: strokeColor,
+        stroke: strokeColor,
+        strokeWidth: 0,
+        left: x2,
+        top: y2,
+        originX: "center",
+        originY: "center",
+        angle: angle + 90,
+        selectable: false,
+        evented: false,
+        objectCaching: false,
+    });
+
+    const group = new Group([shaft, head], {
+        objectId,
+        opacity,
+        selectable,
+        evented,
+        hasControls: true,
+        subTargetCheck: false,
+        // Store endpoints for serialisation / ops reload
+        x1,
+        y1,
+        x2,
+        y2,
+        _isArrow: true,
+    });
+
+    return group;
 };
 
 function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) {
@@ -337,23 +419,56 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                         selectable: false,
                         evented: false,
                     });
+                } else if (data.type === "line") {
+                    obj = buildLineObj(data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y, {
+                        color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                        opacity: data.opacity, selectable: false, evented: false,
+                    });
+                } else if (data.type === "arrow") {
+                    obj = buildArrowGroup(data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y, {
+                        color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                        opacity: data.opacity, selectable: false, evented: false,
+                    });
                 }
-                if (obj) canvas.add(obj);
+                if (obj) {
+                    canvas.add(obj);
+                    obj.setCoords();
+                }
             } else {
-                obj.set({ left: data.x, top: data.y });
-                if (data.color) obj.set({ stroke: data.color });
-                if (data.fill) obj.set({ fill: data.fill });
-                if (data.strokeWidth !== undefined) obj.set({ strokeWidth: data.strokeWidth });
-                if (data.strokeDashArray !== undefined) obj.set({ strokeDashArray: data.strokeDashArray });
-                if (data.opacity !== undefined) obj.set({ opacity: data.opacity });
-                if (data.type === "rect") {
-                    obj.set({ width: data.width, height: data.height });
-                    if (data.rx !== undefined) obj.set({ rx: data.rx, ry: data.ry });
+                if (data.type === "line") {
+                    // Re-create line with updated coords for smooth preview
+                    canvas.remove(obj);
+                    obj = buildLineObj(data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y, {
+                        color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                        opacity: data.opacity, selectable: false, evented: false,
+                    });
+                    canvas.add(obj);
+                    obj.setCoords();
+                } else if (data.type === "arrow") {
+                    // Re-create arrow group with updated coords for smooth preview
+                    canvas.remove(obj);
+                    obj = buildArrowGroup(data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y, {
+                        color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                        opacity: data.opacity, selectable: false, evented: false,
+                    });
+                    canvas.add(obj);
+                    obj.setCoords();
+                } else {
+                    obj.set({ left: data.x, top: data.y });
+                    if (data.color) obj.set({ stroke: data.color });
+                    if (data.fill) obj.set({ fill: data.fill });
+                    if (data.strokeWidth !== undefined) obj.set({ strokeWidth: data.strokeWidth });
+                    if (data.strokeDashArray !== undefined) obj.set({ strokeDashArray: data.strokeDashArray });
+                    if (data.opacity !== undefined) obj.set({ opacity: data.opacity });
+                    if (data.type === "rect") {
+                        obj.set({ width: data.width, height: data.height });
+                        if (data.rx !== undefined) obj.set({ rx: data.rx, ry: data.ry });
+                    }
+                    if (data.type === "circle") {
+                        obj.set({ radius: data.radius });
+                    }
+                    obj.setCoords();
                 }
-                if (data.type === "circle") {
-                    obj.set({ radius: data.radius });
-                }
-                obj.setCoords();
             }
             canvas.requestRenderAll();
         };
@@ -369,6 +484,30 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
 
             let obj = canvas.getObjects().find(o => o.objectId === data.objectId);
             if (obj) {
+                // Line and Arrow use center-based origin in Fabric, so setting
+                // left/top to x1/y1 (start point) would shift them. Instead,
+                // always remove the preview and rebuild with correct coordinates.
+                if (data.type === "line" || data.type === "arrow") {
+                    canvas.remove(obj);
+                    let finalObj;
+                    if (data.type === "line") {
+                        finalObj = buildLineObj(
+                            data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y,
+                            { color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                              opacity: data.opacity, selectable: true, evented: true }
+                        );
+                    } else {
+                        finalObj = buildArrowGroup(
+                            data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y,
+                            { color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                              opacity: data.opacity, selectable: true, evented: true }
+                        );
+                    }
+                    canvas.add(finalObj);
+                    finalObj.setCoords();
+                    canvas.requestRenderAll();
+                    return;
+                }
                 obj.set({
                     left: data.x,
                     top: data.y,
@@ -415,6 +554,24 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                             evented: true,
                         })
                     );
+                }
+
+                if (data.type === "line") {
+                    const lineObj = buildLineObj(data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y, {
+                        color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                        opacity: data.opacity, selectable: true, evented: true,
+                    });
+                    canvas.add(lineObj);
+                    lineObj.setCoords();
+                }
+
+                if (data.type === "arrow") {
+                    const arrowObj = buildArrowGroup(data.objectId, data.x, data.y, data.x2 ?? data.x, data.y2 ?? data.y, {
+                        color: data.color, strokeWidth: data.strokeWidth, strokeDashArray: data.strokeDashArray,
+                        opacity: data.opacity, selectable: true, evented: true,
+                    });
+                    canvas.add(arrowObj);
+                    arrowObj.setCoords();
                 }
 
                 if (data.type === "circle") {
@@ -577,11 +734,35 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                 if (data.fontSize !== undefined) obj.set({ fontSize: data.fontSize });
                 if (data.textAlign !== undefined) obj.set({ textAlign: data.textAlign });
             } else {
-                if (data.color) obj.set({ stroke: data.color });
-                if (data.fill) obj.set({ fill: data.fill });
-                if (data.strokeWidth !== undefined) obj.set({ strokeWidth: data.strokeWidth });
-                if (data.strokeDashArray !== undefined) obj.set({ strokeDashArray: data.strokeDashArray });
-                if (data.opacity !== undefined) obj.set({ opacity: data.opacity });
+                const isArrow = !!obj._isArrow;
+                if (isArrow) {
+                    const shaft = obj.getObjects ? obj.getObjects()[0] : null;
+                    const head = obj.getObjects ? obj.getObjects()[1] : null;
+                    if (data.color) {
+                        if (shaft) shaft.set({ stroke: data.color });
+                        if (head) head.set({ stroke: data.color, fill: data.color });
+                    }
+                    if (data.strokeWidth !== undefined) {
+                        if (shaft) shaft.set({ strokeWidth: data.strokeWidth });
+                        if (head) {
+                            const headSize = Math.max(12, data.strokeWidth * 4);
+                            head.set({ width: headSize, height: headSize });
+                        }
+                    }
+                    if (data.strokeDashArray !== undefined) {
+                        if (shaft) shaft.set({ strokeDashArray: data.strokeDashArray });
+                    }
+                    if (data.opacity !== undefined) {
+                        obj.set({ opacity: data.opacity });
+                    }
+                    obj.dirty = true;
+                } else {
+                    if (data.color) obj.set({ stroke: data.color });
+                    if (data.fill) obj.set({ fill: data.fill });
+                    if (data.strokeWidth !== undefined) obj.set({ strokeWidth: data.strokeWidth });
+                    if (data.strokeDashArray !== undefined) obj.set({ strokeDashArray: data.strokeDashArray });
+                    if (data.opacity !== undefined) obj.set({ opacity: data.opacity });
+                }
             }
 
             obj.setCoords();
@@ -1133,7 +1314,9 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                                         radius: moved?.radius || op.payload.radius || 50,
                                         fill: "transparent",
                                         stroke: moved?.color ?? op.payload.color,
-                                        strokeWidth: 2,
+                                        strokeWidth: op.payload.strokeWidth || 2,
+                                        strokeDashArray: op.payload.strokeDashArray || null,
+                                        opacity: op.payload.opacity !== undefined ? op.payload.opacity : 1,
                                         selectable: true,
                                         evented: true,
                                         angle: moved?.angle || 0,
@@ -1141,6 +1324,36 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                                         scaleY: moved?.scaleY ?? 1,
                                     })
                                 );
+                            }
+
+                            if (op.payload.type === "line") {
+                                const lx1 = moved?.left ?? op.payload.x;
+                                const ly1 = moved?.top ?? op.payload.y;
+                                const lx2 = op.payload.x2 ?? lx1;
+                                const ly2 = op.payload.y2 ?? ly1;
+                                canvas.add(buildLineObj(op.payload.objectId, lx1, ly1, lx2, ly2, {
+                                    color: moved?.color ?? op.payload.color,
+                                    strokeWidth: op.payload.strokeWidth || 2,
+                                    strokeDashArray: op.payload.strokeDashArray || null,
+                                    opacity: op.payload.opacity !== undefined ? op.payload.opacity : 1,
+                                    selectable: true,
+                                    evented: true,
+                                }));
+                            }
+
+                            if (op.payload.type === "arrow") {
+                                const ax1 = moved?.left ?? op.payload.x;
+                                const ay1 = moved?.top ?? op.payload.y;
+                                const ax2 = op.payload.x2 ?? ax1;
+                                const ay2 = op.payload.y2 ?? ay1;
+                                canvas.add(buildArrowGroup(op.payload.objectId, ax1, ay1, ax2, ay2, {
+                                    color: moved?.color ?? op.payload.color,
+                                    strokeWidth: op.payload.strokeWidth || 2,
+                                    strokeDashArray: op.payload.strokeDashArray || null,
+                                    opacity: op.payload.opacity !== undefined ? op.payload.opacity : 1,
+                                    selectable: true,
+                                    evented: true,
+                                }));
                             }
                         }
                     }
@@ -1359,14 +1572,16 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                     }));
                 } else {
                     const isText = activeObj.type === "i-text";
+                    const isArrow = !!activeObj._isArrow;
+                    const shaft = isArrow && activeObj.getObjects ? activeObj.getObjects()[0] : null;
                     window.dispatchEvent(new CustomEvent("selection-info-updated", {
                         detail: {
                             isMultiple: false,
                             isText,
-                            type: activeObj.type,
-                            strokeColor: activeObj.stroke || "#000000",
-                            backgroundColor: activeObj.fill || "transparent",
-                            strokeWidth: activeObj.strokeWidth || 3,
+                            type: isArrow ? "arrow" : activeObj.type,
+                            strokeColor: isArrow ? (shaft?.stroke || "#000000") : (activeObj.stroke || "#000000"),
+                            backgroundColor: isArrow ? "transparent" : (activeObj.fill || "transparent"),
+                            strokeWidth: isArrow ? (shaft?.strokeWidth || 3) : (activeObj.strokeWidth || 3),
                             opacity: activeObj.opacity ?? 1,
                             textColor: isText ? activeObj.fill : "#000000",
                             fontFamily: activeObj.fontFamily || "Inter, sans-serif",
@@ -1374,7 +1589,9 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                             textAlign: activeObj.textAlign || "left",
                             textOpacity: isText ? (activeObj.opacity ?? 1) : 1,
                             edgeStyle: activeObj.rx ? "round" : "sharp",
-                            strokeStyle: activeObj.strokeDashArray ? (activeObj.strokeDashArray[0] > 5 ? "dashed" : "dotted") : "solid"
+                            strokeStyle: isArrow
+                                ? (shaft?.strokeDashArray ? (shaft.strokeDashArray[0] > 5 ? "dashed" : "dotted") : "solid")
+                                : (activeObj.strokeDashArray ? (activeObj.strokeDashArray[0] > 5 ? "dashed" : "dotted") : "solid")
                         }
                     }));
                 }
@@ -1403,15 +1620,40 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                     if (property === "textAlign") obj.set({ textAlign: value });
                     if (property === "textOpacity") obj.set({ opacity: value });
                 } else {
-                    if (property === "strokeColor") obj.set({ stroke: value });
-                    if (property === "backgroundColor") obj.set({ fill: value });
-                    if (property === "strokeWidth") obj.set({ strokeWidth: value });
-                    if (property === "opacity") obj.set({ opacity: value });
-                    if (property === "edgeStyle" && obj.type === "rect") {
-                        obj.set({ rx: value === "round" ? 10 : 0, ry: value === "round" ? 10 : 0 });
-                    }
-                    if (property === "strokeStyle") {
-                        obj.set({ strokeDashArray: value === "dashed" ? [10, 5] : value === "dotted" ? [3, 3] : null });
+                    const isArrow = !!obj._isArrow;
+                    if (isArrow) {
+                        const shaft = obj.getObjects ? obj.getObjects()[0] : null;
+                        const head = obj.getObjects ? obj.getObjects()[1] : null;
+                        if (property === "strokeColor") {
+                            if (shaft) shaft.set({ stroke: value });
+                            if (head) head.set({ stroke: value, fill: value });
+                        }
+                        if (property === "strokeWidth") {
+                            if (shaft) shaft.set({ strokeWidth: value });
+                            if (head) {
+                                const headSize = Math.max(12, value * 4);
+                                head.set({ width: headSize, height: headSize });
+                            }
+                        }
+                        if (property === "opacity") {
+                            obj.set({ opacity: value });
+                        }
+                        if (property === "strokeStyle") {
+                            const dashArray = value === "dashed" ? [10, 5] : value === "dotted" ? [3, 3] : null;
+                            if (shaft) shaft.set({ strokeDashArray: dashArray });
+                        }
+                        obj.dirty = true;
+                    } else {
+                        if (property === "strokeColor") obj.set({ stroke: value });
+                        if (property === "backgroundColor") obj.set({ fill: value });
+                        if (property === "strokeWidth") obj.set({ strokeWidth: value });
+                        if (property === "opacity") obj.set({ opacity: value });
+                        if (property === "edgeStyle" && obj.type === "rect") {
+                            obj.set({ rx: value === "round" ? 10 : 0, ry: value === "round" ? 10 : 0 });
+                        }
+                        if (property === "strokeStyle") {
+                            obj.set({ strokeDashArray: value === "dashed" ? [10, 5] : value === "dotted" ? [3, 3] : null });
+                        }
                     }
                 }
                 obj.setCoords();
@@ -1438,13 +1680,25 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                         textAlign: obj.textAlign
                     });
                 } else {
-                    Object.assign(payload, {
-                        color: obj.stroke,
-                        fill: obj.fill,
-                        strokeWidth: obj.strokeWidth,
-                        strokeDashArray: obj.strokeDashArray,
-                        opacity: obj.opacity
-                    });
+                    const isArrow = !!obj._isArrow;
+                    if (isArrow) {
+                        const shaft = obj.getObjects ? obj.getObjects()[0] : null;
+                        Object.assign(payload, {
+                            color: shaft ? shaft.stroke : "#000000",
+                            fill: "transparent",
+                            strokeWidth: shaft ? shaft.strokeWidth : 2,
+                            strokeDashArray: shaft ? shaft.strokeDashArray : null,
+                            opacity: obj.opacity
+                        });
+                    } else {
+                        Object.assign(payload, {
+                            color: obj.stroke,
+                            fill: obj.fill,
+                            strokeWidth: obj.strokeWidth,
+                            strokeDashArray: obj.strokeDashArray,
+                            opacity: obj.opacity
+                        });
+                    }
                 }
 
                 socket.emit(eventName, payload);
@@ -1683,7 +1937,7 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                 return;
             }
 
-            if (tool !== "rect" && tool !== "circle") return;
+            if (tool !== "rect" && tool !== "circle" && tool !== "line" && tool !== "arrow") return;
 
             if (event.target) return;
 
@@ -1724,10 +1978,36 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                     selectable: true,
                     evented: true,
                 });
+            } else if (tool === "line") {
+                shape = buildLineObj(uuid(), point.x, point.y, point.x, point.y, {
+                    color: currentStyle.strokeColor,
+                    strokeWidth: currentStyle.strokeWidth,
+                    strokeDashArray: currentStyle.strokeStyle === "dashed" ? [10, 5] : currentStyle.strokeStyle === "dotted" ? [3, 3] : null,
+                    opacity: currentStyle.opacity,
+                    selectable: true,
+                    evented: true,
+                });
+            } else if (tool === "arrow") {
+                shape = buildArrowGroup(uuid(), point.x, point.y, point.x, point.y, {
+                    color: currentStyle.strokeColor,
+                    strokeWidth: currentStyle.strokeWidth,
+                    strokeDashArray: currentStyle.strokeStyle === "dashed" ? [10, 5] : currentStyle.strokeStyle === "dotted" ? [3, 3] : null,
+                    opacity: currentStyle.opacity,
+                    selectable: true,
+                    evented: true,
+                });
             }
 
             shapeRef.current = shape;
             canvas.add(shape);
+
+            // For line/arrow store endpoints on the shape for later use
+            if (tool === "line" || tool === "arrow") {
+                shape._x1 = point.x;
+                shape._y1 = point.y;
+                shape._x2 = point.x;
+                shape._y2 = point.y;
+            }
 
             socket.emit("shape_create", {
                 roomId,
@@ -1735,10 +2015,12 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                 type: tool,
                 x: shape.left,
                 y: shape.top,
-                color: shape.stroke,
+                x2: tool === "line" || tool === "arrow" ? point.x : undefined,
+                y2: tool === "line" || tool === "arrow" ? point.y : undefined,
+                color: tool === "arrow" ? shape.getObjects?.()[0]?.stroke : shape.stroke,
                 fill: shape.fill,
-                strokeWidth: shape.strokeWidth,
-                strokeDashArray: shape.strokeDashArray,
+                strokeWidth: tool === "arrow" ? shape.getObjects?.()[0]?.strokeWidth : shape.strokeWidth,
+                strokeDashArray: tool === "arrow" ? shape.getObjects?.()[0]?.strokeDashArray : shape.strokeDashArray,
                 opacity: shape.opacity,
                 rx: shape.rx,
                 ry: shape.ry
@@ -1800,27 +2082,77 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
                 });
             }
 
-            shape.setCoords();
+            if (tool === "line" || tool === "arrow") {
+                const x1 = startXRef.current;
+                const y1 = startYRef.current;
+                const x2 = point.x;
+                const y2 = point.y;
+
+                // Remove old preview and replace with a freshly built one
+                canvas.remove(shape);
+                let newShape;
+                if (tool === "line") {
+                    newShape = buildLineObj(shape.objectId, x1, y1, x2, y2, {
+                        color: shape.stroke,
+                        strokeWidth: shape.strokeWidth,
+                        strokeDashArray: shape.strokeDashArray,
+                        opacity: shape.opacity,
+                        selectable: true,
+                        evented: true,
+                    });
+                } else {
+                    newShape = buildArrowGroup(shape.objectId, x1, y1, x2, y2, {
+                        color: shape.getObjects()[0]?.stroke || currentStyle.strokeColor,
+                        strokeWidth: shape.getObjects()[0]?.strokeWidth || currentStyle.strokeWidth,
+                        strokeDashArray: shape.getObjects()[0]?.strokeDashArray || null,
+                        opacity: shape.opacity,
+                        selectable: true,
+                        evented: true,
+                    });
+                }
+                newShape._x1 = x1;
+                newShape._y1 = y1;
+                newShape._x2 = x2;
+                newShape._y2 = y2;
+                canvas.add(newShape);
+                shapeRef.current = newShape;
+            }
+
+            const currentShape = shapeRef.current;
+            if (!currentShape) return;
+            currentShape.setCoords();
             canvas.requestRenderAll();
 
             const now = Date.now();
             if (now - lastShapeEmitRef.current > 33) {
+                const emitColor = tool === "arrow"
+                    ? currentShape.getObjects?.()[0]?.stroke
+                    : currentShape.stroke;
+                const emitStrokeWidth = tool === "arrow"
+                    ? currentShape.getObjects?.()[0]?.strokeWidth
+                    : currentShape.strokeWidth;
+                const emitDashArray = tool === "arrow"
+                    ? currentShape.getObjects?.()[0]?.strokeDashArray
+                    : currentShape.strokeDashArray;
+
                 socket.emit("shape_update", {
                     roomId,
-                    objectId: shape.objectId,
+                    objectId: currentShape.objectId,
                     type: tool,
-                    x: shape.left,
-                    y: shape.top,
-                    width: shape.width,
-                    height: shape.height,
-                    radius: shape.radius,
-                    color: shape.stroke,
-                    fill: shape.fill,
-                    strokeWidth: shape.strokeWidth,
-                    strokeDashArray: shape.strokeDashArray,
-                    opacity: shape.opacity,
-                    rx: shape.rx,
-                    ry: shape.ry
+                    x: tool === "line" || tool === "arrow" ? startXRef.current : currentShape.left,
+                    y: tool === "line" || tool === "arrow" ? startYRef.current : currentShape.top,
+                    x2: tool === "line" || tool === "arrow" ? point.x : undefined,
+                    y2: tool === "line" || tool === "arrow" ? point.y : undefined,
+                    width: currentShape.width,
+                    height: currentShape.height,
+                    radius: currentShape.radius,
+                    color: emitColor,
+                    fill: currentShape.fill,
+                    strokeWidth: emitStrokeWidth,
+                    strokeDashArray: emitDashArray,
+                    opacity: currentShape.opacity,
+                    rx: currentShape.rx,
+                    ry: currentShape.ry
                 });
                 lastShapeEmitRef.current = now;
             }
@@ -1840,20 +2172,35 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
             canvas.requestRenderAll();
             window.dispatchEvent(new CustomEvent("change-tool", { detail: "select" }));
 
+            // Resolve color/strokeWidth for arrow (stored inside group children)
+            const isArrowTool = tool === "arrow";
+            const isLineTool = tool === "line";
+            const emitColor = isArrowTool
+                ? shape.getObjects?.()[0]?.stroke
+                : shape.stroke;
+            const emitStrokeWidth = isArrowTool
+                ? shape.getObjects?.()[0]?.strokeWidth
+                : shape.strokeWidth;
+            const emitDashArray = isArrowTool
+                ? shape.getObjects?.()[0]?.strokeDashArray
+                : shape.strokeDashArray;
+
             socket.emit("shape_complete", {
                 objectId: shape.objectId,
                 roomId,
                 type: tool,
-                x: shape.left,
-                y: shape.top,
+                x: isLineTool || isArrowTool ? (shape._x1 ?? shape.left) : shape.left,
+                y: isLineTool || isArrowTool ? (shape._y1 ?? shape.top) : shape.top,
+                x2: isLineTool || isArrowTool ? (shape._x2 ?? shape.left) : undefined,
+                y2: isLineTool || isArrowTool ? (shape._y2 ?? shape.top) : undefined,
                 width: shape.width,
                 height: shape.height,
                 radius: shape.radius,
-                color: shape.stroke,
+                color: emitColor,
                 angle: shape.angle || 0,
                 fill: shape.fill,
-                strokeWidth: shape.strokeWidth,
-                strokeDashArray: shape.strokeDashArray,
+                strokeWidth: emitStrokeWidth,
+                strokeDashArray: emitDashArray,
                 opacity: shape.opacity,
                 rx: shape.rx,
                 ry: shape.ry

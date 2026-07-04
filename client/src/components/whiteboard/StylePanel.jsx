@@ -23,7 +23,9 @@ function StylePanel({ tool, currentStyle, onStyleChange, hasSelection }) {
   const isPencil = type === "pencil" || type === "path";
   const isRect = type === "rect";
   const isCircle = type === "circle";
-  const isShapeOrPencil = isMixed ? currentStyle.hasShape : (isPencil || isRect || isCircle);
+  const isLine = type === "line";
+  const isArrow = type === "arrow";
+  const isShapeOrPencil = isMixed ? currentStyle.hasShape : (isPencil || isRect || isCircle || isLine || isArrow);
 
   const shouldBeVisible = (tool !== "select" || hasSelection) && (isText || isShapeOrPencil);
 

@@ -282,9 +282,9 @@ export const initSocket = (httpServer) => {
 
     socket.on("shape_complete", async (data, callback) => {
       try {
-        const { roomId, objectId, type, x, y, width, height, radius, color, fill, angle, scaleX, scaleY } = data;
+        const { roomId, objectId, type, x, y, width, height, radius, color, fill, angle, scaleX, scaleY, x2, y2, strokeWidth, strokeDashArray, opacity } = data;
         const seq = await nextSeq(roomId);
-        const payload = { objectId, type, x, y, width, height, radius, color, fill, angle, scaleX, scaleY };
+        const payload = { objectId, type, x, y, width, height, radius, color, fill, angle, scaleX, scaleY, x2, y2, strokeWidth, strokeDashArray, opacity };
         await persistOp({ roomId, userId: socket.user.id, opType: "shape", payload, seq });
         socket.to(roomId).emit("shape_complete", { ...payload, userId: socket.user.id, seq });
         callback?.({ success: true, seq });

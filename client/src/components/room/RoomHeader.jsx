@@ -78,7 +78,7 @@ function RoomHeader({
         {/* ── END NEW ── */}
 
         {/* Existing: Video Call button (host: start | member: join) */}
-        {myRole === "host" && !callActive && (
+        {myRole === "host" && !callActive && !audioCallActive && (
           <button
             onClick={onStartCall}
             className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors px-3 h-9 text-sm font-medium text-white shadow-sm shadow-emerald-600/20"
@@ -88,7 +88,7 @@ function RoomHeader({
           </button>
         )}
 
-        {callActive && (
+        {callActive && !audioCallActive && (
           <button
             onClick={onStartCall}
             className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 transition-colors px-3 h-9 text-sm font-medium text-white shadow-sm shadow-blue-600/20"
