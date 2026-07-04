@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import socket from "../services/socket";
 import { useParams } from "react-router-dom";
 import VideoCallPanel from "../components/room/VideoCallPanel";
+import AudioCallPanel from "../components/room/AudioCallPanel"; // NEW
 import { getRoomById } from "../services/roomService";
 
 import { useAuth } from "../context/AuthContext";
@@ -27,6 +28,10 @@ function RoomPage() {
   const [loading, setLoading] = useState(true);
   const [showVideo, setShowVideo] = useState(false);
   const [callActive, setCallActive] = useState(false);
+  // ── NEW: Audio call state ──────────────────────────────────────────────────
+  const [audioCallActive, setAudioCallActive] = useState(false);
+  const [showAudio, setShowAudio] = useState(false);
+  // ─────────────────────────────────────────────────────────────────────────
   const [showMembers, setShowMembers] = useState(false);
   const [rightPanel, setRightPanel] = useState(null); // null, "chat", "ai"
   const [mobileTab, setMobileTab] = useState("canvas"); // "canvas", "chat", "ai", "members"
@@ -178,6 +183,7 @@ function RoomPage() {
     loadRoom();
     const cleanupJoin = doSocketJoin();
 
+    // ── Existing video call status ────────────────────────────────────────
     socket.emit("get_call_status", { roomId }, ({ active }) => {
       setCallActive(active);
     });
@@ -187,6 +193,18 @@ function RoomPage() {
       setCallActive(false);
       setShowVideo(false);
     });
+
+    // ── NEW: Audio call status & events ──────────────────────────────────
+    socket.emit("get_audio_call_status", { roomId }, ({ active }) => {
+      setAudioCallActive(active);
+    });
+
+    socket.on("audio_call_started", () => setAudioCallActive(true));
+    socket.on("audio_call_ended", () => {
+      setAudioCallActive(false);
+      setShowAudio(false);
+    });
+    // ─────────────────────────────────────────────────────────────────────
 
     const handleUserJoined = (user) => {
       if (!user || !user.userId) return;
@@ -273,6 +291,10 @@ function RoomPage() {
       socket.emit("leave_room", { roomId });
       socket.off("call_started");
       socket.off("call_ended");
+      // ── NEW: Audio call cleanup ──
+      socket.off("audio_call_started");
+      socket.off("audio_call_ended");
+      // ────────────────────────────
       socket.off("chat_new", handleNewChat);
       socket.off("user_joined", handleUserJoined);
       socket.off("user_left", handleUserLeft);
@@ -324,6 +346,10 @@ function RoomPage() {
           onStartCall={() => setShowVideo(true)}
           onToggleMembers={() => setShowMembers(!showMembers)}
           unreadMembersCount={unreadMembersCount}
+          // ── NEW: Audio call props ──
+          audioCallActive={audioCallActive}
+          onStartAudioCall={() => setShowAudio(true)}
+          // ─────────────────────────
         />
       )}
 
@@ -471,6 +497,17 @@ function RoomPage() {
           members={activeMembers}
         />
       )}
+
+      {/* ── NEW: Audio Call Panel — floats over whiteboard, never hides it ── */}
+      {showAudio && (
+        <AudioCallPanel
+          roomId={roomId}
+          myRole={myRole}
+          members={activeMembers}
+          onClose={() => setShowAudio(false)}
+        />
+      )}
+      {/* ────────────────────────────────────────────────────────────────────── */}
 
       {/* ── Moderation Overlays ──────────────────────────────────────────────── */}
 

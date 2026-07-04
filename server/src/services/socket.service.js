@@ -15,6 +15,9 @@ const CURSOR_COLORS = [
 const roomPresence = new Map();
 const activeCalls = new Map();
 const activeScreenShares = new Map();
+// ── NEW: Separate audio call state ───────────────────────────────────────────────────
+const activeAudioCalls = new Map();
+// ───────────────────────────────────────────────────────────────────────
 
 // --- Moderation Maps ---
 // userId (string) → socket.id — updated on every connect/disconnect
@@ -71,6 +74,9 @@ export const cleanupRoomSocketState = (roomId) => {
   activeCalls.delete(roomIdStr);
   activeScreenShares.delete(roomIdStr);
   roomPresence.delete(roomIdStr);
+  // ── NEW: clear audio call state ──
+  activeAudioCalls.delete(roomIdStr);
+  // ──────────────────────────────
 
   for (const [key] of pendingRejoinRequests.entries()) {
     if (key.startsWith(`${roomIdStr}:`)) {
@@ -87,6 +93,9 @@ export const cleanupRoomSocketState = (roomId) => {
 
     ioInstance.to(roomIdStr).emit("call_ended");
     ioInstance.to(roomIdStr).emit("screen_share_stopped");
+    // ── NEW: notify audio call end on room deletion ──
+    ioInstance.to(roomIdStr).emit("audio_call_ended");
+    // ──────────────────────────────────────────────────
 
     ioInstance.in(roomIdStr).socketsLeave(roomIdStr);
   }
@@ -548,6 +557,69 @@ export const initSocket = (httpServer) => {
 
     // ================= END SCREEN SHARE =================
     // ================= END VIDEO CALL =================
+
+    // ================= NEW: AUDIO CALL =================
+
+    socket.on("start_audio_call", ({ roomId }) => {
+      // Idempotent: do nothing if already active
+      if (activeAudioCalls.has(roomId)) return;
+
+      activeAudioCalls.set(roomId, {
+        startedBy: socket.user.id,
+        participants: new Set([socket.user.id]),
+      });
+
+      // Notify entire room (including host) so all clients can show "Join Audio"
+      io.to(roomId).emit("audio_call_started", {
+        startedBy: socket.user.id,
+      });
+    });
+
+    socket.on("join_audio_call", ({ roomId }) => {
+      const call = activeAudioCalls.get(roomId);
+      if (call) {
+        call.participants.add(socket.user.id);
+      }
+
+      io.to(roomId).emit("user_joined_audio_call", {
+        userId: socket.user.id,
+      });
+    });
+
+    socket.on("leave_audio_call", ({ roomId }) => {
+      const call = activeAudioCalls.get(roomId);
+      if (call) {
+        call.participants.delete(socket.user.id);
+      }
+
+      io.to(roomId).emit("user_left_audio_call", {
+        userId: socket.user.id,
+      });
+    });
+
+    socket.on("end_audio_call", async ({ roomId }) => {
+      // Only the host may end the call for everyone
+      const member = await RoomMember.findOne({
+        roomId,
+        userId: socket.user.id,
+      });
+
+      if (!member || member.role !== "host") {
+        return;
+      }
+
+      activeAudioCalls.delete(roomId);
+
+      io.to(roomId).emit("audio_call_ended");
+    });
+
+    socket.on("get_audio_call_status", ({ roomId }, callback) => {
+      callback?.({
+        active: activeAudioCalls.has(roomId),
+      });
+    });
+
+    // ================= END NEW: AUDIO CALL =================
     // ================= HOST MODERATION =================
 
     socket.on("host_remove_user", async ({ roomId, userId }, callback) => {

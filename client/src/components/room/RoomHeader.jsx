@@ -1,10 +1,20 @@
 import { useState } from "react";
-import { Copy, ArrowLeft, Users, Video, PhoneCall } from "lucide-react";
+import { Copy, ArrowLeft, Users, Video, PhoneCall, Mic } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import NotificationBadge from "./NotificationBadge";
 import ConfirmModal from "../ConfirmModal";
 
-function RoomHeader({ room, onStartCall, callActive, myRole, onToggleMembers, unreadMembersCount }) {
+function RoomHeader({
+  room,
+  onStartCall,
+  callActive,
+  myRole,
+  onToggleMembers,
+  unreadMembersCount,
+  // ── NEW: Audio call props ──
+  onStartAudioCall,
+  audioCallActive,
+}) {
   const navigate = useNavigate();
 
   const [showCopyModal, setShowCopyModal] = useState(false);
@@ -45,13 +55,36 @@ function RoomHeader({ room, onStartCall, callActive, myRole, onToggleMembers, un
           Members
         </button>
 
+        {/* ── NEW: Audio Call button (host: start | member: join) ── */}
+        {myRole === "host" && !audioCallActive && (
+          <button
+            onClick={onStartAudioCall}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 transition-colors px-3 h-9 text-sm font-medium text-white shadow-sm shadow-blue-600/20"
+          >
+            <Mic size={16} />
+            Start Audio
+          </button>
+        )}
+
+        {audioCallActive && (
+          <button
+            onClick={onStartAudioCall}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 transition-colors px-3 h-9 text-sm font-medium text-white shadow-sm shadow-blue-600/20"
+          >
+            <Mic size={16} />
+            Join Audio
+          </button>
+        )}
+        {/* ── END NEW ── */}
+
+        {/* Existing: Video Call button (host: start | member: join) */}
         {myRole === "host" && !callActive && (
           <button
             onClick={onStartCall}
             className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors px-3 h-9 text-sm font-medium text-white shadow-sm shadow-emerald-600/20"
           >
             <Video size={16} />
-            Start Call
+            Start Video
           </button>
         )}
 
@@ -60,8 +93,8 @@ function RoomHeader({ room, onStartCall, callActive, myRole, onToggleMembers, un
             onClick={onStartCall}
             className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 transition-colors px-3 h-9 text-sm font-medium text-white shadow-sm shadow-blue-600/20"
           >
-            <PhoneCall size={16} />
-            Join Call
+            <Video size={16} />
+            Join Video
           </button>
         )}
         

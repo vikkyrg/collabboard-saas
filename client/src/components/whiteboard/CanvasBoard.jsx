@@ -1869,10 +1869,9 @@ function CanvasBoard({ roomId, tool, currentStyle, cursors, setHasSelection, }) 
 
         const handlePathCreated = (e) => {
             if (tool === "pencil" && e.path) {
-                // Select the newly created path
-                canvas.setActiveObject(e.path);
-                canvas.requestRenderAll();
-                window.dispatchEvent(new CustomEvent("change-tool", { detail: "select" }));
+                // ── Pencil stays active: do NOT select the path or switch to Select tool.
+                // The stroke is already saved and broadcast by the path:created handler above.
+                // Users can immediately draw the next stroke without reselecting the pencil.
             }
         };
 
